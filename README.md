@@ -2,7 +2,11 @@
 
 gmsh(https://gmsh.info/) 等で生成した2次元の三角形非構造格子メッシュ（.msh）を用いて，Dirichlet境界条件の2次元波動方程式を有限体積法で解くプログラム．
 
-参考資料：数値流体力学 第2版 (https://www.morikita.co.jp/books/mid/091972) p341ぐらいから非構造格子での離散化の話 交差拡散項については付録Fにも記載されています．
+参考資料：数値流体力学 第2版 (https://www.morikita.co.jp/books/mid/091972) p341ぐらいから非構造格子での離散化の話 交差拡散項については付録Fにも記載されています．大学の図書館にあります．
+
+Jax(https://github.com/google/jax) について・・・イメージで言うとnumpyを高速化しやすいやつ
+
+このJaxを使う深層学習ライブラリにFlax(https://github.com/google/flax) があります．（FlaxはTensorFlow,PyTorchみたいな感じ）
 
 ## 実行方法
 
