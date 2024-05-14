@@ -30,5 +30,5 @@ def main(directory_name):
     print("Save as wav format.")
 
 if __name__ == "__main__":
-    directory_name = "響板.msh_time:0.1_time_detail:100_2024-04-24_01:16:22"
+    directory_name = "autograd_響板.msh_time:0.1_time_detail:10_2024-05-14_21:31:00"
     main(directory_name)

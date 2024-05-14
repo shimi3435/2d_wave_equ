@@ -127,7 +127,7 @@ class Visual:
         return self.__bound_cond_points
 
 def main():
-    directory = "響板.msh_time:0.1_time_detail:100_2024-04-24_01:16:22"
+    directory = "響板.msh_time:0.1_time_detail:20_2024-05-14_22:00:24"
     v = Visual(directory)
     v.prepare_visualization()
     v.save_visualization()

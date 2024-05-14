@@ -9,9 +9,8 @@ import datetime
 import shutil
 
 def run_simulation(df):
-    ### パラメータの読み込み ###
     mesh_file = df.iloc[0, 0]
-    parse_directory = "parse_" + mesh_file.replace(".msh", "") + "/"
+    parse_directory = "./parse_" + mesh_file.replace(".msh", "") + "/"
 
     physical_groups_names = []
     with open(parse_directory + "/physical_groups_names.csv", "r") as f:
@@ -28,9 +27,6 @@ def run_simulation(df):
     triangle_vertices = np.load(parse_directory + "triangle_vertices.npy")
     triangle_centroid = np.load(parse_directory + "triangle_centroid.npy")
 
-    c_to_c = np.load(parse_directory + "c_to_c.npy")
-    triangle_edges = np.load(parse_directory + "triangle_edges.npy")
-
     coefficient_param = np.empty((physical_groups_num, 8), dtype="float32")
     coefficient = np.empty((8, cells_num), dtype="float32")
 
@@ -38,16 +34,15 @@ def run_simulation(df):
     samplerate = df.iloc[0, 2]
     t_detail = df.iloc[0, 3]
     for i in range(physical_groups_num):
-        for j in range(6):
-            coefficient_param[i][j] = df.iloc[0, 4 + 6 * i + j]
-    resist_c = df.iloc[0, -6]
+        for j in range(8):
+            coefficient_param[i][j] = df.iloc[0, 4 + 8 * i + j]
     force_c = df.iloc[0, -5]
     force_x = df.iloc[0, -4]
     force_y = df.iloc[0, -3]
     force_r = df.iloc[0, -2]
     force_file_path = df.iloc[0, -1]
 
-    for i in range(6):
+    for i in range(8):
         start = 0
         end = 0
         for j in range(physical_groups_num):
@@ -55,11 +50,11 @@ def run_simulation(df):
             coefficient[i, start:end] = coefficient_param[j, i]
             start = end
 
+    coefficient = jnp.asarray(coefficient)
     M = int(t_end * samplerate * t_detail)
     t_eval = np.linspace(0.0, t_end, M, dtype="float32")
     dt = t_eval[1] - t_eval[0]
 
-    ###外力挿入点の決定###
     force_point = jnp.asarray([force_x, force_y])
 
     @jax.jit
@@ -114,39 +109,50 @@ def run_simulation(df):
     force_power = np.zeros(M, dtype="float32")
     force_data = np.loadtxt(force_file_path)
 
+    for i in range(len(force_data)):
+        for j in range(t_detail):
+            if(t_detail * i + j < M):
+                force_power[t_detail * i + j] = force_data[i]
+
     sol_energy = np.empty(M, dtype="float32")
 
-    ###変位と速度の配列確保 できなかったら終了###
     try:
         sol = np.empty((M, 2, cells_num+1), dtype="float32")
         allocate = True
     except:
         allocate = False
 
-    for i in range(len(force_data)):
-        if(t_detail * i < len(force_data)):
-            for j in range(t_detail):
-                force_power[t_detail * i + j] = force_data[i]
+    zero_zero = jnp.zeros((1,2), dtype="float32")
 
-    ###エネルギー（ハミルトニアン）の計算関数###
     @jax.jit
     def calc_energy(u, v):
         dudx_dudy = jax.vmap(lambda x,y,z : jnp.dot(x, y - z))(mat_ATA_inv_AT, u[neighbor_tags], u[:cells_num])
-        energy = jnp.sum((coefficient[0] / 2.0 * v[:cells_num]**2 + coefficient[1] / 2.0 * dudx_dudy[:,0] ** 2 + coefficient[2]/ 2.0 * dudx_dudy[:,1] ** 2) * areas[:cells_num])
+        dudx_dudy_0 = jnp.concatenate([dudx_dudy, zero_zero])
+        ddudxx = jax.vmap(lambda x,y,z : jnp.dot(x, y - z))(mat_ATA_inv_AT, dudx_dudy_0[neighbor_tags][:, :, 0], dudx_dudy_0[:cells_num][:, 0])
+        ddudyy = jax.vmap(lambda x,y,z : jnp.dot(x, y - z))(mat_ATA_inv_AT, dudx_dudy_0[neighbor_tags][:, :, 1], dudx_dudy_0[:cells_num][:, 1])
+        energy = jnp.sum((coefficient[0] / 2.0 * v[:cells_num]**2 + coefficient[1] / 2.0 * dudx_dudy[:,0] ** 2 + coefficient[2]/ 2.0 * dudx_dudy[:,1] ** 2 + coefficient[3] / 2.0 * ddudxx[:,0] ** 2 + coefficient[4] / 2.0 * ddudyy[:,1] ** 2 + coefficient[5] / 2.0 * (ddudxx[:,1] + ddudyy[:,0]) ** 2 ) * areas[:cells_num])
         return energy
 
-    #dudtの右辺
+    dedu = jax.jit(jax.grad(calc_energy, argnums=0))
+    dedv = jax.jit(jax.grad(calc_energy, argnums=1))
+
     @jax.jit
     def rhs_u(u, v):
-        return coefficient[0] * v[:cells_num]
+        return dedv(u, v)[:cells_num] / areas
 
-    #dvdtの右辺
+    r_c1 = coefficient[6]
+    r_c2 = coefficient[7]
+
     @jax.jit
     def rhs_v(u, v, f):
-        return coefficient[1] / areas * ((u[neighbor_tags[:, 0]] - u[:cells_num]) / c_to_c[:, 0] * triangle_edges[:, 0] + (u[neighbor_tags[:, 1]] - u[:cells_num]) / c_to_c[:, 1] * triangle_edges[:, 1] + (u[neighbor_tags[:, 2]] - u[:cells_num]) / c_to_c[:, 2] * triangle_edges[:, 2]) - resist_c * v[:cells_num] + force_c * f
+        dvdx_dvdy = jax.vmap(lambda x,y,z : jnp.dot(x, y - z))(mat_ATA_inv_AT, v[neighbor_tags], v[:cells_num])
+        dvdx_dvdy_0 = jnp.concatenate([dvdx_dvdy, zero_zero])
+        ddvdxx = jax.vmap(lambda x,y,z : jnp.dot(x, y - z))(mat_ATA_inv_AT, dvdx_dvdy_0[neighbor_tags][:, :, 0], dvdx_dvdy_0[:cells_num][:, 0])
+        ddvdyy = jax.vmap(lambda x,y,z : jnp.dot(x, y - z))(mat_ATA_inv_AT, dvdx_dvdy_0[neighbor_tags][:, :, 1], dvdx_dvdy_0[:cells_num][:, 1])
+        return (-dedu(u, v)[:cells_num] - r_c1 * areas * v[:cells_num] + r_c2 * areas * (ddvdxx[:,0] + ddvdyy[:,1]) + force_c * f) / areas
 
     dt_now = datetime.datetime.now()
-    output_directry = str(mesh_file) + "_time:" + str(t_end) + "_time_detail:" + str(t_detail) + "_" + dt_now.strftime("%Y-%m-%d_%H:%M:%S")
+    output_directry = "autograd_" + str(mesh_file) + "_time:" + str(t_end) + "_time_detail:" + str(t_detail) + "_" + dt_now.strftime("%Y-%m-%d_%H:%M:%S")
 
     os.makedirs("./result/" + output_directry + "/", exist_ok=True)
     shutil.rmtree("./result/" + output_directry + "/")
@@ -160,6 +166,9 @@ def run_simulation(df):
 
         jax.device_put(areas)
         jax.device_put(coefficient)
+        jax.device_put(r_c1)
+        jax.device_put(r_c2)
+        jax.device_put(zero_zero)
         jax.device_put(force_c)
         jax.device_put(mat_ATA_inv_AT)
         jax.device_put(neighbor_tags)
@@ -170,17 +179,14 @@ def run_simulation(df):
         print("Now solving...")
         solve_time_start = time.perf_counter()
         for n in range(M-1):
-            tu = sol[n,0,:]
-            tv = sol[n,1,:]
-            energy = calc_energy(tu, tv)
-            sol_energy[n] = energy
+            tu = jnp.asarray(sol[n,0,:])
+            tv = jnp.asarray(sol[n,1,:])
+            sol_energy[n] = calc_energy(tu, tv)
             nv = np.asarray(tv + dt * jnp.concatenate([rhs_v(tu, tv, force_power[n] * force_points_mask), jnp.asarray([0])]))
-            nu = np.asarray(tu + dt * jnp.concatenate([rhs_u(tu, nv), jnp.asarray([0])])) #シンプレクティックオイラー法
-            #nu = np.asarray(tu + dt * jnp.concatenate([rhs_u(tu, tv), jnp.asarray([0])])) #陽的オイラー法
+            nu = np.asarray(tu + dt * jnp.concatenate([rhs_u(tu, nv), jnp.asarray([0])]))
             sol[n+1,0,:] = nu
             sol[n+1,1,:] = nv
-        energy = calc_energy(sol[-1,0,:], sol[-1,1,:])
-        sol_energy[M-1] = energy
+        sol_energy[M-1] = calc_energy(jnp.asarray(sol[-1,0,:]), jnp.asarray(sol[-1,1,:]))
         solve_time_end = time.perf_counter()
         solve_time = solve_time_end - solve_time_start
         print("solve time = " + str(solve_time))
@@ -206,10 +212,55 @@ def run_simulation(df):
         print("Save as ./result/" + output_directry + "/v.npy")
 
     else:
-        print("Cannot allocate.")
+        u = np.zeros(cells_num+1, dtype="float32")
+        v = np.zeros(cells_num+1, dtype="float32")
+        np.save("./result/" + output_directry + "/u_time_" + str(0), u)
+        np.save("./result/" + output_directry + "/v_time_" + str(0), v)
+
+        jax.device_put(areas)
+        jax.device_put(coefficient)
+        jax.device_put(r_c1)
+        jax.device_put(r_c2)
+        jax.device_put(force_c)
+        jax.device_put(mat_ATA_inv_AT)
+        jax.device_put(neighbor_tags)
+        jax.device_put(cells_num)
+        jax.device_put(force_power)
+        jax.device_put(force_points_mask)
+
+        print("Now solving...")
+        solve_time_start = time.perf_counter()
+        for n in range(M-1):
+            tu = u
+            tv = v
+            energy = calc_energy(tu, tv)
+            sol_energy[n] = energy
+            nv = np.asarray(tv + dt * jnp.concatenate([rhs_v(tu, tv, force_power[n] * force_points_mask), jnp.asarray([0])]))
+            nu = np.asarray(tu + dt * jnp.concatenate([rhs_u(tu, nv), jnp.asarray([0])]))
+            np.save("./result/" + output_directry + "/u_time_" + str(n+1), nu)
+            np.save("./result/" + output_directry + "/v_time_" + str(n+1), nv)
+            u = nu
+            v = nv
+        energy = calc_energy(u, v)
+        sol_energy[M-1] = energy
+        solve_time_end = time.perf_counter()
+        solve_time = solve_time_end - solve_time_start
+        print("solve time = " + str(solve_time))
+
+        df.to_csv("./result/" + output_directry + "/df.csv")
+        print("Save as ./result/" + output_directry + "/df.csv")
+
+        with open("./result/" + output_directry + "/out.txt", "w") as f:
+            f.write(str(solve_time))
+            f.write("\n")
+            f.write(str(allocate))
+        print("Save as ./result/" + output_directry + "/out.txt")
+
+        np.save("./result/" + output_directry + "/energy", sol_energy)
+        print("Save as ./result/" + output_directry + "/energy.npy")
 
 def main():
-    df = pd.read_csv("./params.csv", index_col=0)
+    df = pd.read_csv("./autograd_params.csv", index_col=0)
     run_simulation(df)
 
 if __name__ == "__main__":

@@ -1,2 +1,2 @@
 ,MESH,TIME,SR,TD,brige_1_C1,brige_1_C2,brige_1_C3,brige_1_C4,brige_1_C5,brige_1_C6,brige_2_C1,brige_2_C2,brige_2_C3,brige_2_C4,brige_2_C5,brige_2_C6,soundboard_C1,soundboard_C2,soundboard_C3,soundboard_C4,soundboard_C5,soundboard_C6,RESIST_C,F_C,F_POINT_X,F_POINT_Y,F_RADIUS,FORCE_PATH
-Params,響板.msh,0.01,48000,100,1.0,30000000.0,30000000.0,250.0,250.0,0.0,1.0,30000000.0,30000000.0,250.0,250.0,0.0,1.0,30000000.0,30000000.0,250.0,250.0,0.0,50.0,1.0,0.5,1.2,0.05,./force_data/test.csv
+Params,響板.msh,0.1,48000,20,1.0,30000000.0,30000000.0,250.0,250.0,0.0,1.0,30000000.0,30000000.0,250.0,250.0,0.0,1.0,30000000.0,30000000.0,250.0,250.0,0.0,80.0,1.0,0.5,1.2,0.05,./force_data/test.csv
